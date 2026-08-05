@@ -21,6 +21,9 @@ Features (all computed leak-safely as of the forecast origin):
   the Bank's 2% target. Above-target inflation argues against cuts.
 - ``unemployment_momentum`` — 12-month change in the unemployment rate.
   A deteriorating labour market argues for cuts.
+- ``gdp_growth_yoy`` (optional) — latest available real GDP year-over-year
+    growth. Softer activity tends to support cuts; re-acceleration can support
+    holds/hikes.
 
 The model is re-fit *inside* ``predict()`` at every origin (like the Darts
 predictors): training examples are all past meetings whose outcomes are
@@ -53,13 +56,20 @@ from ..data import (
     BOND_YIELD_2YR_SERIES_ID,
     CPI_SERIES_ID,
     DIRECTION_TASK_CATEGORIES,
+    GDP_SERIES_ID,
     TARGET_RATE_SERIES_ID,
     UNEMPLOYMENT_SERIES_ID,
 )
 
 
 FEATURE_NAMES = ["yield_spread", "rate_momentum", "inflation_gap", "unemployment_momentum"]
-"""Feature columns produced by :func:`build_feature_row`, in order."""
+"""Default (legacy) feature columns produced by :func:`build_feature_row`."""
+
+GDP_FEATURE_NAME = "gdp_growth_yoy"
+"""Optional GDP growth feature name."""
+
+FEATURE_NAMES_WITH_GDP = [*FEATURE_NAMES, GDP_FEATURE_NAME]
+"""Expanded feature set used when ``include_gdp=True``."""
 
 #: Daily market data prints with a 1-business-day lag; slicing by
 #: ``timestamp <= origin - 1d`` guarantees the row was actually public.
@@ -88,6 +98,9 @@ def build_feature_row(
     yield_df: pd.DataFrame,
     cpi_df: pd.DataFrame,
     unemployment_df: pd.DataFrame,
+    gdp_df: pd.DataFrame | None = None,
+    *,
+    include_gdp: bool = False,
 ) -> dict[str, float] | None:
     """Compute the macro feature vector available at ``origin``.
 
@@ -102,6 +115,12 @@ def build_feature_row(
     rate_df, yield_df, cpi_df, unemployment_df : pd.DataFrame
         Canonical series frames (``timestamp``/``value``/``released_at``).
         May contain rows after ``origin``; they are ignored.
+    gdp_df : pd.DataFrame or None
+        Real GDP series in canonical format. Required when ``include_gdp``
+        is ``True``.
+    include_gdp : bool
+        When ``True``, appends ``gdp_growth_yoy`` to the returned feature
+        vector.
 
     Returns
     -------
@@ -131,12 +150,27 @@ def build_feature_row(
     unemp_now = float(unemp_visible["value"].iloc[-1])
     unemp_year_ago = float(unemp_visible["value"].iloc[-(_UNEMPLOYMENT_MOMENTUM_MONTHS + 1)])
 
-    return {
+    features = {
         "yield_spread": yield_2yr - rate_now,
         "rate_momentum": rate_now - rate_then,
         "inflation_gap": inflation_yoy - 2.0,
         "unemployment_momentum": unemp_now - unemp_year_ago,
     }
+
+    if not include_gdp:
+        return features
+
+    if gdp_df is None:
+        return None
+
+    gdp_visible = gdp_df[gdp_df["timestamp"] <= origin].iloc[: -_MONTHLY_EXTRA_LAG_MONTHS or None]
+    if len(gdp_visible) < 13:
+        return None
+
+    gdp_now = float(gdp_visible["value"].iloc[-1])
+    gdp_year_ago = float(gdp_visible["value"].iloc[-13])
+    features[GDP_FEATURE_NAME] = (gdp_now / gdp_year_ago - 1.0) * 100.0
+    return features
 
 
 class BoCLogisticPredictor(Predictor):
@@ -158,14 +192,25 @@ class BoCLogisticPredictor(Predictor):
         defensible forecast instead of an error.
     """
 
-    def __init__(self, regularization_c: float = 1.0, min_training_examples: int = 16) -> None:
+    def __init__(
+        self,
+        regularization_c: float = 1.0,
+        min_training_examples: int = 16,
+        *,
+        include_gdp: bool = False,
+        predictor_id: str | None = None,
+    ) -> None:
         self._c = regularization_c
         self._min_train = min_training_examples
+        self._include_gdp = include_gdp
+        self._feature_names = FEATURE_NAMES_WITH_GDP if include_gdp else FEATURE_NAMES
+        default_id = "boc_logistic_macro_gdp" if include_gdp else "boc_logistic_macro"
+        self._predictor_id = predictor_id or default_id
 
     @property
     def predictor_id(self) -> str:
         """Stable identifier for this predictor."""
-        return "boc_logistic_macro"
+        return self._predictor_id
 
     def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
         """Fit on past meetings visible at the origin and emit one forecast.
@@ -184,11 +229,28 @@ class BoCLogisticPredictor(Predictor):
         yield_df = context.get_series(BOND_YIELD_2YR_SERIES_ID)
         cpi_df = context.get_series(CPI_SERIES_ID)
         unemployment_df = context.get_series(UNEMPLOYMENT_SERIES_ID)
+        gdp_df = context.get_series(GDP_SERIES_ID) if self._include_gdp else None
 
         offset = pd.tseries.frequencies.to_offset(task.frequency)
         lead = offset * task.horizons[0]
-        feature_rows, outcomes = self._build_training_data(target_df, rate_df, yield_df, cpi_df, unemployment_df, lead)
-        current_features = build_feature_row(as_of, rate_df, yield_df, cpi_df, unemployment_df)
+        feature_rows, outcomes = self._build_training_data(
+            target_df,
+            rate_df,
+            yield_df,
+            cpi_df,
+            unemployment_df,
+            gdp_df,
+            lead,
+        )
+        current_features = build_feature_row(
+            as_of,
+            rate_df,
+            yield_df,
+            cpi_df,
+            unemployment_df,
+            gdp_df,
+            include_gdp=self._include_gdp,
+        )
 
         if task.payload_type == "binary":
             payload, model_info = self._predict_binary(feature_rows, outcomes, current_features)
@@ -217,6 +279,7 @@ class BoCLogisticPredictor(Predictor):
         yield_df: pd.DataFrame,
         cpi_df: pd.DataFrame,
         unemployment_df: pd.DataFrame,
+        gdp_df: pd.DataFrame | None,
         lead: pd.DateOffset,
     ) -> tuple[list[list[float]], list[float]]:
         """Build leak-safe training examples from resolved past meetings.
@@ -232,10 +295,18 @@ class BoCLogisticPredictor(Predictor):
         outcomes: list[float] = []
         for meeting, outcome in zip(target_df["timestamp"], target_df["value"]):
             past_origin = pd.Timestamp(meeting) - lead
-            features = build_feature_row(past_origin, rate_df, yield_df, cpi_df, unemployment_df)
+            features = build_feature_row(
+                past_origin,
+                rate_df,
+                yield_df,
+                cpi_df,
+                unemployment_df,
+                gdp_df,
+                include_gdp=self._include_gdp,
+            )
             if features is None:
                 continue
-            feature_rows.append([features[name] for name in FEATURE_NAMES])
+            feature_rows.append([features[name] for name in self._feature_names])
             outcomes.append(float(outcome))
         return feature_rows, outcomes
 
@@ -265,14 +336,14 @@ class BoCLogisticPredictor(Predictor):
         model = make_pipeline(StandardScaler(), LogisticRegression(C=self._c, max_iter=1000))
         model.fit(np.asarray(feature_rows), np.asarray(outcomes))
 
-        x_now = np.asarray([[current_features[name] for name in FEATURE_NAMES]])
+        x_now = np.asarray([[current_features[name] for name in self._feature_names]])
         probability = float(model.predict_proba(x_now)[0, 1])
 
         coefs = model.named_steps["logisticregression"].coef_[0]
         return BinaryForecast(probability=probability), {
             "model": "logistic_regression",
-            "features": dict(zip(FEATURE_NAMES, (float(f) for f in x_now[0]))),
-            "coefficients": dict(zip(FEATURE_NAMES, (float(c) for c in coefs))),
+            "features": dict(zip(self._feature_names, (float(f) for f in x_now[0]))),
+            "coefficients": dict(zip(self._feature_names, (float(c) for c in coefs))),
         }
 
     def _predict_categorical(
@@ -299,7 +370,7 @@ class BoCLogisticPredictor(Predictor):
         model = make_pipeline(StandardScaler(), LogisticRegression(C=self._c, max_iter=1000))
         model.fit(np.asarray(feature_rows), np.asarray(outcomes))
 
-        x_now = np.asarray([[current_features[name] for name in FEATURE_NAMES]])
+        x_now = np.asarray([[current_features[name] for name in self._feature_names]])
         row = model.predict_proba(x_now)[0]
         probabilities = {category.label: 0.0 for category in categories}
         for class_value, probability in zip(model.classes_, row):
@@ -308,7 +379,7 @@ class BoCLogisticPredictor(Predictor):
 
         return CategoricalForecast(probabilities=probabilities), {
             "model": "multinomial_logistic_regression",
-            "features": dict(zip(FEATURE_NAMES, (float(f) for f in x_now[0]))),
+            "features": dict(zip(self._feature_names, (float(f) for f in x_now[0]))),
         }
 
     def _class_frequency_probabilities(self, outcomes: list[float], categories: list[TaskCategory]) -> dict[str, float]:
@@ -332,4 +403,10 @@ class BoCLogisticPredictor(Predictor):
         raise ValueError(f"Observed class value {value} is not declared in task.categories.")
 
 
-__all__ = ["FEATURE_NAMES", "BoCLogisticPredictor", "build_feature_row"]
+__all__ = [
+    "FEATURE_NAMES",
+    "FEATURE_NAMES_WITH_GDP",
+    "GDP_FEATURE_NAME",
+    "BoCLogisticPredictor",
+    "build_feature_row",
+]

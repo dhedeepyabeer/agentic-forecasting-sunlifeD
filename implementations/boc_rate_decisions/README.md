@@ -126,13 +126,15 @@ re-run `scripts/fetch_boc.py --refresh` to pick up new announcements.
 | Group | Predictor | Information set |
 |---|---|---|
 | Floor baseline | `CategoricalFrequencyPredictor` (core package) | Past outcomes only — the constant climatological distribution |
-| Conventional | `predictors/logistic_baseline.py` | Fit-at-origin multinomial logistic regression on four leak-safe macro features (yield spread, rate momentum, inflation gap, unemployment momentum); training features are rebuilt at each past meeting minus the task's own lead, so the train and predict feature distributions match; dispatches to plain logistic regression on binary tasks |
+| Conventional | `predictors/logistic_baseline.py` | Fit-at-origin multinomial logistic regression on leak-safe macro features. Default (legacy) set: yield spread, rate momentum, inflation gap, unemployment momentum. Optional GDP variant (`include_gdp=True`): adds real GDP YoY growth (`gdp_growth_yoy`). Training features are rebuilt at each past meeting minus the task's own lead, so train and predict feature distributions match; dispatches to plain logistic regression on binary tasks |
 | LLMP | `predictors/llmp_direction.py` → `CategoricalProbabilityLLMPredictor` | Labelled outcome history + BoC context block; one structured call, direct distribution elicitation. `predictors/llmp_binary.py` is the binary counterpart |
-| Agentic | `analyst_agent/` → `AgentPredictor` + `CategoricalAgentForecastOutput` | Rate path + decision history + **the same macro features as the logistic model** |
+| Agentic | `analyst_agent/` → `AgentPredictor` + `CategoricalAgentForecastOutput` | Rate path + decision history + leak-safe macro snapshot from `BoCDecisionPromptBuilder` (legacy by default; optional GDP YoY via `include_gdp=True`) |
 
-The agent/logistic pairing is deliberate: identical indicators, so the
-comparison isolates *conventional fitting* vs *LLM reasoning*. The agent
-also emits `reasoning` and `key_signals` per meeting — the input for the
+The agent/logistic pairing is deliberate: within each family, legacy and
+`+GDP` variants are run under the same training/prompt contract, so GDP
+impact can be measured apples-to-apples; across families, the shared feature
+plumbing isolates *conventional fitting* vs *LLM reasoning*. The agent also
+emits `reasoning` and `key_signals` per meeting — the input for the
 reasoning-alignment evaluator in `rationale_eval.py`, demonstrated
 end-to-end in notebook 03.
 
