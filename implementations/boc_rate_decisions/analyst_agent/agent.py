@@ -59,6 +59,7 @@ from aieng.forecasting.models import LITE_MODEL
 from boc_rate_decisions.data import (
     BOND_YIELD_2YR_SERIES_ID,
     CPI_SERIES_ID,
+    GDP_SERIES_ID,
     TARGET_RATE_SERIES_ID,
     UNEMPLOYMENT_SERIES_ID,
 )
@@ -100,7 +101,7 @@ def _build_boc_analyst_instruction() -> str:
         "with the realised base rates for each outcome\n"
         "- `macro_snapshot`: leak-safe indicators as of the origin (CPI inflation "
         "vs the 2% target, unemployment momentum, 2-year GoC yield vs the policy "
-        "rate)\n\n"
+        "rate, and optionally real GDP YoY growth)\n\n"
         "Rules:\n"
         "1. Assign one probability to each of `cut`, `hold`, and `hike` — a move "
         "of any size counts. The three probabilities must sum to 1.\n"
@@ -202,6 +203,7 @@ class BoCDecisionPromptBuilder(BaseModel):
     """
 
     model_config = {"extra": "forbid"}
+    include_gdp: bool = False
 
     def __call__(self, *, task: ForecastingTask, context: ForecastContext) -> str:
         """Serialise the task and cutoff-filtered context into a JSON payload.
@@ -239,8 +241,17 @@ class BoCDecisionPromptBuilder(BaseModel):
         yield_df = context.get_series(BOND_YIELD_2YR_SERIES_ID)
         cpi_df = context.get_series(CPI_SERIES_ID)
         unemployment_df = context.get_series(UNEMPLOYMENT_SERIES_ID)
+        gdp_df = context.get_series(GDP_SERIES_ID) if self.include_gdp else None
 
-        features = build_feature_row(as_of, rate_df, yield_df, cpi_df, unemployment_df)
+        features = build_feature_row(
+            as_of,
+            rate_df,
+            yield_df,
+            cpi_df,
+            unemployment_df,
+            gdp_df,
+            include_gdp=self.include_gdp,
+        )
 
         labels_by_value = {category.value: category.label for category in task.categories}
         outcomes: list[dict[str, object]] = []
@@ -282,7 +293,7 @@ class BoCDecisionPromptBuilder(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def build_boc_basic_config(model: str = LITE_MODEL) -> AgentConfig:
+def build_boc_basic_config(model: str = LITE_MODEL, *, include_gdp: bool = False) -> AgentConfig:
     """Build the quantitative-only BoC analyst config (no tools).
 
     The agent reasons purely from the rate path, outcome history, and macro
@@ -294,13 +305,16 @@ def build_boc_basic_config(model: str = LITE_MODEL) -> AgentConfig:
     ----------
     model : str
         Model identifier for the analyst agent.
+    include_gdp : bool, default=False
+        When ``True``, names the config as a GDP-enabled variant so predictor
+        identifiers are distinct in leaderboards/cache.
 
     Returns
     -------
     AgentConfig
     """
     return AgentConfig(
-        name="boc_analyst_basic",
+        name="boc_analyst_basic_gdp" if include_gdp else "boc_analyst_basic",
         model=model,
         instruction=_BOC_ANALYST_INSTRUCTION,
     )
@@ -309,6 +323,8 @@ def build_boc_basic_config(model: str = LITE_MODEL) -> AgentConfig:
 def build_boc_news_config(
     model: str = LITE_MODEL,
     search_model: str = LITE_MODEL,
+    *,
+    include_gdp: bool = False,
 ) -> AgentConfig:
     """Build the news-grounded BoC analyst config (bounded Google Search).
 
@@ -327,13 +343,16 @@ def build_boc_news_config(
         the lite model (``gemini-3.1-flash-lite-preview``) independently of ``model`` so
         that Gemini handles Google Search even when the analyst uses a
         different provider.
+    include_gdp : bool, default=False
+        When ``True``, names the config as a GDP-enabled variant so predictor
+        identifiers are distinct in leaderboards/cache.
 
     Returns
     -------
     AgentConfig
     """
     return AgentConfig(
-        name="boc_analyst_news",
+        name="boc_analyst_news_gdp" if include_gdp else "boc_analyst_news",
         model=model,
         instruction=_BOC_ANALYST_INSTRUCTION,
         context_retrieval=ContextRetrievalConfig(
@@ -349,7 +368,7 @@ def build_boc_news_config(
 # ---------------------------------------------------------------------------
 
 
-def build_boc_agent_predictor(config: AgentConfig) -> AgentPredictor:
+def build_boc_agent_predictor(config: AgentConfig, *, include_gdp: bool = False) -> AgentPredictor:
     """Wrap an :class:`AgentConfig` in an :class:`AgentPredictor`.
 
     Uses :class:`BoCDecisionPromptBuilder` and the
@@ -365,6 +384,9 @@ def build_boc_agent_predictor(config: AgentConfig) -> AgentPredictor:
     config : AgentConfig
         Any config produced by :func:`build_boc_basic_config` or
         :func:`build_boc_news_config`.
+    include_gdp : bool, default=False
+        When ``True``, include leak-safe GDP YoY growth in ``macro_snapshot``
+        (the same feature plumbing used by the logistic baseline).
 
     Returns
     -------
@@ -372,7 +394,7 @@ def build_boc_agent_predictor(config: AgentConfig) -> AgentPredictor:
     """
     return AgentPredictor(
         agent_config=config,
-        prompt_builder=BoCDecisionPromptBuilder(),
+        prompt_builder=BoCDecisionPromptBuilder(include_gdp=include_gdp),
         output_schema=CategoricalAgentForecastOutput,
     )
 
