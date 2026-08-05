@@ -52,13 +52,14 @@ from aieng.forecasting.evaluation.task import ForecastingTask, TaskCategory
 from ..data import (
     BOND_YIELD_2YR_SERIES_ID,
     CPI_SERIES_ID,
+    GDP_SERIES_ID,
     DIRECTION_TASK_CATEGORIES,
     TARGET_RATE_SERIES_ID,
     UNEMPLOYMENT_SERIES_ID,
 )
 
 
-FEATURE_NAMES = ["yield_spread", "rate_momentum", "inflation_gap", "unemployment_momentum"]
+FEATURE_NAMES = ["yield_spread", "rate_momentum", "inflation_gap", "unemployment_momentum","gdp_growth",]
 """Feature columns produced by :func:`build_feature_row`, in order."""
 
 #: Daily market data prints with a 1-business-day lag; slicing by
@@ -69,18 +70,29 @@ _DAILY_AVAILABILITY_LAG_DAYS = 1
 #: reference month and the adapters' ``released_at`` stamps are approximate,
 #: so the most recent reference month visible in the context is dropped.
 _MONTHLY_EXTRA_LAG_MONTHS = 1
-
+_GDP_EXTRA_LAG_MONTHS = 1
 _RATE_MOMENTUM_WINDOW_DAYS = 90
 _UNEMPLOYMENT_MOMENTUM_MONTHS = 12
 
 
-def _last_value_before(df: pd.DataFrame, cutoff: pd.Timestamp) -> float | None:
-    """Return the last ``value`` with ``timestamp <= cutoff``, or ``None``."""
-    visible = df[df["timestamp"] <= cutoff]
-    if visible.empty:
-        return None
-    return float(visible["value"].iloc[-1])
+# def _last_value_before(df: pd.DataFrame, cutoff: pd.Timestamp) -> float | None:
+#     """Return the last ``value`` with ``timestamp <= cutoff``, or ``None``."""
+#     visible = df[df["timestamp"] <= cutoff] & (df["released_at"] <= cutoff)
+#     if visible.empty:
+#         return None
+#     return float(visible["value"].iloc[-1])
 
+def lastvalue_before(df: pd.DataFrame, cutoff: pd.Timestamp) -> float | None:
+
+    """Return the last ``value`` with ``timestamp <= cutoff``, or ``None``."""
+
+    visible = df[df["timestamp"] <= cutoff]
+
+    if visible.empty:
+
+        return None
+
+    return float(visible["value"].iloc[-1])
 
 def build_feature_row(
     origin: pd.Timestamp,
@@ -88,6 +100,7 @@ def build_feature_row(
     yield_df: pd.DataFrame,
     cpi_df: pd.DataFrame,
     unemployment_df: pd.DataFrame,
+    gdp_df: pd.DataFrame,
 ) -> dict[str, float] | None:
     """Compute the macro feature vector available at ``origin``.
 
@@ -120,8 +133,9 @@ def build_feature_row(
     # Monthly series: slice by timestamp, then drop the newest reference month.
     cpi_visible = cpi_df[cpi_df["timestamp"] <= origin].iloc[: -_MONTHLY_EXTRA_LAG_MONTHS or None]
     unemp_visible = unemployment_df[unemployment_df["timestamp"] <= origin].iloc[: -_MONTHLY_EXTRA_LAG_MONTHS or None]
+    gdp_visible = gdp_df[ gdp_df["timestamp"] <= origin].iloc[: -_GDP_EXTRA_LAG_MONTHS or None]
     # YoY inflation needs 13 reference months; unemployment momentum needs 13.
-    if len(cpi_visible) < 13 or len(unemp_visible) < _UNEMPLOYMENT_MOMENTUM_MONTHS + 1:
+    if len(cpi_visible) < 13 or len(unemp_visible) < _UNEMPLOYMENT_MOMENTUM_MONTHS + 1  or len(gdp_visible) < 13:
         return None
 
     cpi_now = float(cpi_visible["value"].iloc[-1])
@@ -130,12 +144,17 @@ def build_feature_row(
 
     unemp_now = float(unemp_visible["value"].iloc[-1])
     unemp_year_ago = float(unemp_visible["value"].iloc[-(_UNEMPLOYMENT_MOMENTUM_MONTHS + 1)])
+    gdp_now = float(gdp_visible["value"].iloc[-1])
+    gdp_year_ago  = float(gdp_visible["value"].iloc[-13])
+
+    gdp_growth = ((gdp_now / gdp_year_ago ) - 1.0) * 100.0
 
     return {
         "yield_spread": yield_2yr - rate_now,
         "rate_momentum": rate_now - rate_then,
         "inflation_gap": inflation_yoy - 2.0,
         "unemployment_momentum": unemp_now - unemp_year_ago,
+        "gdp_growth": gdp_growth,
     }
 
 
@@ -184,11 +203,12 @@ class BoCLogisticPredictor(Predictor):
         yield_df = context.get_series(BOND_YIELD_2YR_SERIES_ID)
         cpi_df = context.get_series(CPI_SERIES_ID)
         unemployment_df = context.get_series(UNEMPLOYMENT_SERIES_ID)
+        gdp_df = context.get_series(GDP_SERIES_ID)
 
         offset = pd.tseries.frequencies.to_offset(task.frequency)
         lead = offset * task.horizons[0]
-        feature_rows, outcomes = self._build_training_data(target_df, rate_df, yield_df, cpi_df, unemployment_df, lead)
-        current_features = build_feature_row(as_of, rate_df, yield_df, cpi_df, unemployment_df)
+        feature_rows, outcomes = self._build_training_data(target_df, rate_df, yield_df, cpi_df, unemployment_df,   gdp_df, lead)
+        current_features = build_feature_row(as_of, rate_df, yield_df, cpi_df,unemployment_df, gdp_df)
 
         if task.payload_type == "binary":
             payload, model_info = self._predict_binary(feature_rows, outcomes, current_features)
@@ -217,6 +237,7 @@ class BoCLogisticPredictor(Predictor):
         yield_df: pd.DataFrame,
         cpi_df: pd.DataFrame,
         unemployment_df: pd.DataFrame,
+        gdp_df: pd.DataFrame,
         lead: pd.DateOffset,
     ) -> tuple[list[list[float]], list[float]]:
         """Build leak-safe training examples from resolved past meetings.
@@ -232,7 +253,7 @@ class BoCLogisticPredictor(Predictor):
         outcomes: list[float] = []
         for meeting, outcome in zip(target_df["timestamp"], target_df["value"]):
             past_origin = pd.Timestamp(meeting) - lead
-            features = build_feature_row(past_origin, rate_df, yield_df, cpi_df, unemployment_df)
+            features = build_feature_row(past_origin, rate_df, yield_df, cpi_df, unemployment_df, gdp_df,)
             if features is None:
                 continue
             feature_rows.append([features[name] for name in FEATURE_NAMES])
@@ -285,7 +306,7 @@ class BoCLogisticPredictor(Predictor):
         """Fit the multinomial model and return ``(payload, metadata)``."""
         categories = task.categories if task.categories is not None else DIRECTION_TASK_CATEGORIES
         degenerate = (
-            current_features is None or len(outcomes) < self._min_train or len(set(outcomes)) < 2  # noqa: PLR2004
+            current_features is None or len(outcomes) < self._min_train or len(set(outcomes)) < 2 or len(set(outcomes)) < len(categories)  # noqa: PLR2004
         )
         if degenerate:
             return CategoricalForecast(probabilities=self._class_frequency_probabilities(outcomes, categories)), {

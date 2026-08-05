@@ -59,6 +59,7 @@ from aieng.forecasting.models import LITE_MODEL
 from boc_rate_decisions.data import (
     BOND_YIELD_2YR_SERIES_ID,
     CPI_SERIES_ID,
+    GDP_SERIES_ID,
     TARGET_RATE_SERIES_ID,
     UNEMPLOYMENT_SERIES_ID,
 )
@@ -99,7 +100,7 @@ def _build_boc_analyst_instruction() -> str:
         "- `meeting_outcomes`: per-meeting decision history (cut / hold / hike) "
         "with the realised base rates for each outcome\n"
         "- `macro_snapshot`: leak-safe indicators as of the origin (CPI inflation "
-        "vs the 2% target, unemployment momentum, 2-year GoC yield vs the policy "
+        "vs the 2% target, real GDP growth, unemployment momentum, 2-year GoC yield vs the policy "
         "rate)\n\n"
         "Rules:\n"
         "1. Assign one probability to each of `cut`, `hold`, and `hike` — a move "
@@ -108,12 +109,15 @@ def _build_boc_analyst_instruction() -> str:
         "across many questions where you assign 0.7 to an outcome, that outcome "
         "should occur about 70% of the time. Anchor on the historical base rates, "
         "then adjust.\n"
-        "3. Cuts and hikes cluster into easing and tightening cycles; the macro "
+        "Cuts and hikes cluster into easing and tightening cycles; the macro "
         "snapshot tells you whether you are in one. The 2-year yield trading well "
         "below the policy rate means the bond market is pricing cuts; well above "
-        "means it is pricing hikes. Direct cut-to-hike reversals between adjacent "
-        "meetings essentially never happen, so the recent decision history should "
-        "strongly shape which tail outcome is plausible.\n"
+        "means it is pricing hikes. GDP growth provides an additional activity "
+        "signal: accelerating growth can reduce the urgency for easing, while "
+        "weakening GDP growth can increase the case for cuts. Direct cut-to-hike "
+        "reversals between adjacent meetings essentially never happen, so the "
+        "recent decision history and macro regime should strongly shape which tail "
+        "outcome is plausible.\n"
         "4. Use ONLY information available on or before `as_of`. Do not use "
         "knowledge of what the Bank actually decided on or after "
         "`announcement_date`, even if you remember it. If `search_web` returns a "
@@ -194,7 +198,8 @@ class BoCDecisionPromptBuilder(BaseModel):
     rates), and a leak-safe macro snapshot (shared with the logistic baseline
     via
     :func:`~boc_rate_decisions.predictors.logistic_baseline.build_feature_row`,
-    so the agent and the conventional model see exactly the same indicators).
+    including CPI, unemployment, bond yields, and GDP indicators so the agent
+    and the conventional model see exactly the same information set).
 
     Implements the
     :class:`~aieng.forecasting.methods.agentic.predictor.ForecastPromptBuilder`
@@ -239,8 +244,9 @@ class BoCDecisionPromptBuilder(BaseModel):
         yield_df = context.get_series(BOND_YIELD_2YR_SERIES_ID)
         cpi_df = context.get_series(CPI_SERIES_ID)
         unemployment_df = context.get_series(UNEMPLOYMENT_SERIES_ID)
+        gdp_df = context.get_series(GDP_SERIES_ID)
 
-        features = build_feature_row(as_of, rate_df, yield_df, cpi_df, unemployment_df)
+        features = build_feature_row(as_of, rate_df, yield_df, cpi_df, unemployment_df, gdp_df,)
 
         labels_by_value = {category.value: category.label for category in task.categories}
         outcomes: list[dict[str, object]] = []
