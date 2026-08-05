@@ -138,6 +138,19 @@ emits `reasoning` and `key_signals` per meeting — the input for the
 reasoning-alignment evaluator in `rationale_eval.py`, demonstrated
 end-to-end in notebook 03.
 
+### GDP covariate impact (current experiment run)
+
+Notebook 02 now includes explicit side-by-side GDP delta checks for both
+families (logistic and agent), each reported as mean RPS deltas where lower
+is better:
+
+- Logistic baseline: `0.3680 -> 0.3621` (`+GDP - legacy = -0.0059`)
+- Agent baseline: `0.0900 -> 0.0892` (`+GDP - legacy = -0.0008`)
+
+Current verdict: GDP is directionally helpful in both families for this run,
+with a clearer gain in the conventional logistic baseline and a marginal lift
+for the agent.
+
 > **Leakage note (cutoff posture).** Gemini's parametric knowledge cutoff is
 > ~January 2025, and for a discrete outcome a single recalled label is the whole
 > answer — so the 2010–2024 backtest RPS for the LLMP and agent is an **upper
@@ -192,7 +205,8 @@ implementations/boc_rate_decisions/
 ```
 
 Tests live under `implementations/tests/boc_rate_decisions/` (direction and
-event derivation semantics; feature leak-safety).
+event derivation semantics; feature leak-safety; GDP toggle coverage for both
+the logistic baseline and the analyst-agent prompt builder).
 
 ---
 
@@ -201,7 +215,7 @@ event derivation semantics; feature leak-safety).
 | Notebook | Purpose |
 |---|---|
 | `01_boc_data_exploration.ipynb` | Problem framing (ordered decision vs time series), policy-rate history with cut/hold/hike markers, direction derivation + schedule validation, class imbalance and the climatology RPS floor (with the cumulative-Brier decomposition), cutoff discipline at a real origin. |
-| `02_boc_rate_direction_experiment.ipynb` | **Main experiment.** Binary warm-up (the copy-paste reference + RPS(K=2) ≡ Brier check), smoke/full config switch, cached backtests for all four predictors at the canonical T−28 lead, RPS leaderboard with skill scores, the T−28 vs T−1 lead-time comparison ("anticipation gap"), decision timeline (P(cut) and P(hike)), one-vs-rest reliability curves, agent-reasoning inspection, budget-gated protected eval. |
+| `02_boc_rate_direction_experiment.ipynb` | **Main experiment.** Binary warm-up (the copy-paste reference + RPS(K=2) ≡ Brier check), smoke/full config switch, cached backtests for all six directional predictors at the canonical T−28 lead (climatology, logistic, logistic + GDP, LLMP, agent, agent + GDP), RPS leaderboard with skill scores, dedicated GDP-delta diagnostics and interpretation cells for both logistic and agent families, the T−28 vs T−1 lead-time comparison ("anticipation gap"), decision timeline (P(cut) and P(hike)), one-vs-rest reliability curves, agent-reasoning inspection, budget-gated protected eval. |
 | `03_rationale_alignment.ipynb` | **Reasoning-alignment evaluation.** Runs traced LLMP/agent forecasts, then judges each trace's `reasoning`/`key_signals` against the Bank's published press release with an LLM-as-judge (`rationale_eval.py`), pushing `rationale_alignment` (0–1) and `right_for_right_reasons` scores back to Langfuse. A *process* metric that complements RPS — most valuable exactly where backtest scores are least trustworthy (see the leakage note above). |
 | `99_starter_agent.ipynb` | **Your starter agent.** A fresh, hackable cut/hold/hike agent — *not* part of the experiment above. Toggleable news search + code execution and two lightweight tool-usage skills, with an interactive (Track 2) cell, one scored prediction (Track 1), and a "make it yours" guide. The place to start building your own. |
 
