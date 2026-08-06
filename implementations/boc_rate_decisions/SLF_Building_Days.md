@@ -124,55 +124,60 @@ Overall conclusion: adding GDP has mixed impact in this experiment run — helpf
 
 ### Objective
 
-Improve the BoC starter notebook for low-budget iterative development, while keeping it safe by default and preserving the existing end-of-notebook "Make it yours" section.
+Extend `04_SLF_BoC_agent.ipynb` using the suggestions from the notebook's "Make it yours" section, while keeping the notebook safe to run on a limited Copilot / model budget.
 
 ### Changes completed
 
-1. Starter controls and spend guard upgrades
-- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
-- Expanded setup controls in the notebook's first code section:
-  - capability toggles: `ENABLE_SEARCH`, `ENABLE_CODE_EXEC`
-  - style selector: `STYLE` (`balanced | contrarian | cautious`)
-  - spend guards: `RUN_AGENT=False` and `RUN_BENCHMARK=False` by default.
-- Added a concise startup printout so the active run mode is always visible before any live call.
+Files touched for this Day 3 notebook work:
+- `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- `implementations/boc_rate_decisions/starter_agent/agent.py`
+- `implementations/boc_rate_decisions/starter_agent/skills/research-playbook/SKILL.md`
+- `implementations/boc_rate_decisions/starter_agent/skills/code-analysis-playbook/SKILL.md`
 
-2. In-notebook personality and analysis-discipline overlay
-- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
-- Added `_style_suffix(...)` and appended it to `config.instruction` at runtime.
-- The overlay adds:
-  - temporal-cutoff discipline (`as_of` as hard fence)
-  - base-rate-first reasoning
-  - explicit dovish/base/hawkish scenario framing
-  - style-specific behavior (balanced, contrarian, cautious).
+1. Flip code execution on
+- Changes:
+  - Added explicit notebook capability toggles: `ENABLE_SEARCH`, `ENABLE_CODE_EXEC`, `STYLE`, and `RUN_AGENT`.
+  - Added a concise startup printout so the active run mode is visible before any live call.
+  - Exposed code-execution availability directly through the config preview so the loaded skills reflect the toggle state.
+  - Added a dedicated live comparison cell that holds model, style, question origin, and forecast origin fixed while comparing rationale with `enable_code_exec=False` versus `enable_code_exec=True`.
+- Impact:
+  - Code execution is now easy to enable from the notebook without editing library code.
+  - The notebook now hits the original target of comparing the forecast rationale with and without code execution, not just flipping the toggle.
+  - The notebook remains safer and cheaper to iterate on because live execution is an explicit opt-in.
 
-3. Faster Track 2 experimentation
-- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
-- Added `QUESTION_PRESETS` and `QUESTION_KEY` in the chat cell, enabling one-line switching across analysis prompts (`base`, `hawkish_risk`, `dovish_risk`).
+2. Edit the agent's personality
+- Changes:
+  - Updated `starter_agent/agent.py` so `_build_starter_instruction(style=...)` now owns style-specific behavior directly in source.
+  - Added source-level style presets: `balanced`, `skeptical`, and `cautious`.
+  - Added source-level analysis-discipline guidance covering cutoff awareness, base-rate-first reasoning, and dovish/base/hawkish scenario framing.
+  - Added a one-driver conclusion rule in each style block so outputs stay auditable and testable.
+  - Updated Cell 4 in `04_SLF_BoC_agent.ipynb` to pass `style=STYLE` into `build_starter_agent_config(...)` rather than appending a notebook-only suffix.
+  - Replaced the hard-coded `2% CPI inflation target` phrasing in the starter-agent role with `the Bank's inflation-targeting framework`.
+- Impact:
+  - Personality changes now follow the "Make it yours" suggestion literally by living in `_build_starter_instruction()`.
+  - Cell 4 output now demonstrates source-level persona changes, not just notebook-local prompt augmentation.
+  - The persona is more robust because it no longer bakes in a potentially stale numeric inflation-target assumption.
 
-4. Tiny multi-origin benchmark (optional)
-- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
-- Added a new section with a gated benchmark cell (`RUN_AGENT and RUN_BENCHMARK`) over recent resolved meetings.
-- Computes and prints per-meeting plus average metrics:
-  - probability on realized outcome
-  - Brier score
-  - log loss
-  - comparison against climatology baseline.
+3. Sharpen the skills
+- Changes:
+  - Added a concrete BoC query pack to `research-playbook`, with explicit cutoff-aware searches for BoC communications, CPI/core inflation, labour-market data, market pricing, and trade/oil/FX shocks.
+  - Added a concrete BoC diagnostic recipe to `code-analysis-playbook`, including base-rate recomputation, direct-reversal checks, and macro-snapshot summarisation using the real payload fields.
+  - Kept the notebook config preview so the loaded skill names remain visible when the corresponding tool is enabled.
+- Impact:
+  - This item is now implemented directly in the skill files rather than only hinted at in the notebook.
+  - The agent can pick up higher-signal search queries and better BoC-specific diagnostics automatically whenever those playbooks are loaded.
 
-5. Second-pass Track 1 improvements
-- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
-- Reworked Track 1 to support origin modes:
-  - `latest_resolved` (default)
-  - `manual` (specific historical announcement)
-  - `upcoming` (next scheduled meeting from `meeting_schedule.yaml`).
-- Added a lightweight `reasoning` quality audit (`_reasoning_audit(...)`) that scores whether the narrative includes:
-  - timing/cutoff awareness
-  - base-rate or historical context
-  - scenarios/alternatives
-  - key macro signals.
+4. Change the question and the origin
+- Changes:
+  - Added `QUESTION_PRESETS` and `QUESTION_KEY` in the Track 2 cell for one-line switching between `base`, `hawkish_risk`, and `dovish_risk` prompts.
+  - Reworked Track 1 to support three origin modes:
+    - `latest_resolved`
+    - `manual`
+    - `upcoming`
+- Impact:
+  - Open-ended scenario exploration is faster because question changes no longer require rewriting the prompt each time.
+  - Historical and live-style forecast experiments are easier because forecast origin is now an explicit notebook control.
 
-### Validation completed
 
-- Re-executed modified non-live notebook cells successfully with safe guards enabled.
-- Confirmed Track 1 and benchmark cells exit cleanly when live flags are off.
-- Preserved "Make it yours" as the final substantive section in the notebook.
+
 

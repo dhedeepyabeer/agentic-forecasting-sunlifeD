@@ -41,6 +41,24 @@ unemployment, wages), market pricing (overnight index swaps, economist surveys),
 recent BoC communications, and macro shocks (oil, the loonie, US policy, trade).
 Search for the *current state* of these, then let the base rates set the prior.
 
+## High-signal BoC query pack
+
+Call `search_web` once per topic, always with `cutoff_date=<as_of>`:
+
+- `search_web(query="Bank of Canada statement speech Monetary Policy Report overnight rate outlook", cutoff_date=<as_of>)`
+- `search_web(query="Canada CPI core inflation CPI-trim CPI-median latest print", cutoff_date=<as_of>)`
+- `search_web(query="Canada employment unemployment wage growth labour force survey latest", cutoff_date=<as_of>)`
+- `search_web(query="Bank of Canada overnight index swaps economist survey next meeting", cutoff_date=<as_of>)`
+- `search_web(query="Canada oil prices loonie exchange rate US tariffs trade shock growth outlook", cutoff_date=<as_of>)`
+
+Use these queries to answer five distinct questions:
+
+1. Has the Bank's communication tone become more hawkish or dovish?
+2. Is inflation persistence still the dominant problem, or is it fading?
+3. Is the labour market merely cooling, or clearly deteriorating?
+4. What outcome is already priced by markets and forecasters?
+5. Is there an external shock large enough to justify moving away from the base rates?
+
 ## Room to grow
 
 - Add a curated list of go-to sources for your domain.
