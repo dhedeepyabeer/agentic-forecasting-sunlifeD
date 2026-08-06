@@ -145,11 +145,11 @@ families (logistic and agent), each reported as mean RPS deltas where lower
 is better:
 
 - Logistic baseline: `0.3680 -> 0.3621` (`+GDP - legacy = -0.0059`)
-- Agent baseline: `0.0900 -> 0.0892` (`+GDP - legacy = -0.0008`)
+- Agent baseline: `0.0750 -> 0.0900` (`+GDP - legacy = +0.0150`)
 
-Current verdict: GDP is directionally helpful in both families for this run,
-with a clearer gain in the conventional logistic baseline and a marginal lift
-for the agent.
+Current verdict: GDP helps the conventional logistic baseline in this run,
+but degrades the agent baseline. The sign is therefore mixed across model
+families rather than uniformly positive.
 
 > **Leakage note (cutoff posture).** Gemini's parametric knowledge cutoff is
 > ~January 2025, and for a discrete outcome a single recalled label is the whole

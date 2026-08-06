@@ -111,10 +111,68 @@ Update `02_boc_rate_direction_experiment.ipynb` to test whether adding GDP chang
   - delta (`+GDP - legacy`): `-0.0059`
   - verdict: small but clear improvement from GDP.
 - Agent predictor:
-  - legacy mean RPS: `0.0900`
-  - `+GDP` mean RPS: `0.0892`
-  - delta (`+GDP - legacy`): `-0.0008`
-  - verdict: very modest improvement, concentrated in a small number of meetings.
+  - legacy mean RPS: `0.0750`
+  - `+GDP` mean RPS: `0.0900`
+  - delta (`+GDP - legacy`): `+0.0150`
+  - verdict: worse with GDP in this run (material degradation).
 
-Overall conclusion: adding GDP is directionally beneficial for both predictor families in this experiment run, with a more material gain for the logistic baseline and only a marginal lift for the agent path.
+Overall conclusion: adding GDP has mixed impact in this experiment run — helpful for the logistic baseline but harmful for the agent path.
+
+---
+
+## Day 3
+
+### Objective
+
+Improve the BoC starter notebook for low-budget iterative development, while keeping it safe by default and preserving the existing end-of-notebook "Make it yours" section.
+
+### Changes completed
+
+1. Starter controls and spend guard upgrades
+- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- Expanded setup controls in the notebook's first code section:
+  - capability toggles: `ENABLE_SEARCH`, `ENABLE_CODE_EXEC`
+  - style selector: `STYLE` (`balanced | contrarian | cautious`)
+  - spend guards: `RUN_AGENT=False` and `RUN_BENCHMARK=False` by default.
+- Added a concise startup printout so the active run mode is always visible before any live call.
+
+2. In-notebook personality and analysis-discipline overlay
+- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- Added `_style_suffix(...)` and appended it to `config.instruction` at runtime.
+- The overlay adds:
+  - temporal-cutoff discipline (`as_of` as hard fence)
+  - base-rate-first reasoning
+  - explicit dovish/base/hawkish scenario framing
+  - style-specific behavior (balanced, contrarian, cautious).
+
+3. Faster Track 2 experimentation
+- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- Added `QUESTION_PRESETS` and `QUESTION_KEY` in the chat cell, enabling one-line switching across analysis prompts (`base`, `hawkish_risk`, `dovish_risk`).
+
+4. Tiny multi-origin benchmark (optional)
+- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- Added a new section with a gated benchmark cell (`RUN_AGENT and RUN_BENCHMARK`) over recent resolved meetings.
+- Computes and prints per-meeting plus average metrics:
+  - probability on realized outcome
+  - Brier score
+  - log loss
+  - comparison against climatology baseline.
+
+5. Second-pass Track 1 improvements
+- File: `implementations/boc_rate_decisions/04_SLF_BoC_agent.ipynb`
+- Reworked Track 1 to support origin modes:
+  - `latest_resolved` (default)
+  - `manual` (specific historical announcement)
+  - `upcoming` (next scheduled meeting from `meeting_schedule.yaml`).
+- Added a lightweight `reasoning` quality audit (`_reasoning_audit(...)`) that scores whether the narrative includes:
+  - timing/cutoff awareness
+  - base-rate or historical context
+  - scenarios/alternatives
+  - key macro signals.
+
+### Validation completed
+
+- Re-executed modified non-live notebook cells successfully with safe guards enabled.
+- Confirmed Track 1 and benchmark cells exit cleanly when live flags are off.
+- Preserved "Make it yours" as the final substantive section in the notebook.
 
