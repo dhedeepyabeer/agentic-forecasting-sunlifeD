@@ -49,6 +49,56 @@ the empirical base rates, measure how far the current macro snapshot sits from
 typical pre-cut vs pre-hold conditions, and count how often the Bank reversed
 direction between adjacent meetings.
 
+## Concrete BoC diagnostics
+
+If `run_code` is available, these are good first diagnostics before setting
+probabilities:
+
+1. **Recompute the historical base rates** from `payload["meeting_outcomes"]` and compare them with the provided `historical_base_rates`.
+2. **Check tail plausibility** by counting how often the Bank moved directly from `cut` to `hike` or from `hike` to `cut` in adjacent meetings.
+3. **Summarise the current macro snapshot** from `payload["macro_snapshot"]`:
+   - `yield_spread`
+   - `rate_momentum`
+   - `inflation_gap`
+   - `unemployment_momentum`
+   - optional `gdp_growth_yoy`
+
+Example pattern:
+
+```python
+meeting = payload["meeting_outcomes"]
+history = meeting["history"]
+counts = meeting["counts"]
+base_rates = meeting["historical_base_rates"]
+macro = payload["macro_snapshot"]
+
+transitions = list(zip(history[:-1], history[1:]))
+direct_reversals = sum(
+   1
+   for prev, curr in transitions
+   if {prev["decision"], curr["decision"]} == {"cut", "hike"}
+)
+
+summary = {
+   "base_rates": base_rates,
+   "n_meetings": meeting["n_meetings"],
+   "direct_cut_hike_reversals": direct_reversals,
+   "yield_spread": macro.get("yield_spread"),
+   "rate_momentum": macro.get("rate_momentum"),
+   "inflation_gap": macro.get("inflation_gap"),
+   "unemployment_momentum": macro.get("unemployment_momentum"),
+   "gdp_growth_yoy": macro.get("gdp_growth_yoy"),
+}
+print(summary)
+```
+
+Interpretation guide:
+
+- Large negative `yield_spread` usually supports cuts more than hikes.
+- Positive `inflation_gap` argues against early easing.
+- Positive `unemployment_momentum` supports more dovish probabilities.
+- Near-zero direct reversals mean tail outcomes should usually remain small unless several signals align.
+
 ## Room to grow
 
 - Add your own diagnostic patterns (regime detection, seasonality, covariates).

@@ -61,7 +61,7 @@ _CODE_ANALYSIS_SKILL = _SKILLS_ROOT / "code-analysis-playbook"
 # ---------------------------------------------------------------------------
 
 
-def _build_starter_instruction() -> str:
+def _build_starter_instruction(style: str = "balanced") -> str:
     """Build the task-agnostic, skill-agnostic starter persona.
 
     Just the analyst's identity and how to behave — no output schema, no payload
@@ -71,10 +71,34 @@ def _build_starter_instruction() -> str:
     duplicate dynamically-injected information. The forecasting *contract* lives
     in the loadable ``forecasting`` skill. Edit the persona freely.
     """
+    style_key = style.lower().strip()
+
+    if style_key in {"skeptical", "contrarian"}:
+        style_block = (
+            "## Style: Skeptical\n\n"
+            "- Do not follow consensus by default; require explicit evidence before matching market pricing.\n"
+            "- Stress-test the minority scenario first and assign it non-trivial probability when plausible.\n"
+            "- Keep one core driver front-and-center in your conclusion so the policy call is falsifiable."
+        )
+    elif style_key == "cautious":
+        style_block = (
+            "## Style: Cautious\n\n"
+            "- Penalize tail outcomes unless multiple independent signals align.\n"
+            "- Prefer stability over regime-call heroics when evidence is mixed.\n"
+            "- Keep one core driver front-and-center in your conclusion so policy risk is explicit."
+        )
+    else:
+        style_block = (
+            "## Style: Balanced\n\n"
+            "- Match the central tendency of evidence while preserving realistic tail risk.\n"
+            "- Avoid overreacting to any single data point or headline.\n"
+            "- Keep one core driver front-and-center in your conclusion so the decision is auditable."
+        )
+
     return (
         "## Role\n\n"
         "You are a Bank of Canada monetary-policy analyst — fluent in the "
-        "policy-rate path, the 2% CPI inflation target, labour-market and "
+        "policy-rate path, the Bank's inflation-targeting framework, labour-market and "
         "bond-market conditions, and the Bank's institutional behaviour "
         "(gradualism, data dependence, reluctance to surprise markets). This is "
         "a starter agent: keep your reasoning transparent and your claims honest.\n\n"
@@ -83,11 +107,14 @@ def _build_starter_instruction() -> str:
         "conversational, answer directly and concisely — do NOT ask for a JSON "
         "payload.\n"
         "- When you are handed a task that asks for a structured probability "
-        "distribution over the next decision, produce a calibrated one."
+        "distribution over the next decision, produce a calibrated one.\n\n"
+        "## Analysis discipline\n\n"
+        "- Use `as_of` as a hard cutoff. If evidence is missing, say so explicitly.\n"
+        "- Start from historical base rates, then update based on current regime signals.\n"
+        "- Build three scenarios (dovish / base / hawkish) and map them to cut/hold/hike probabilities.\n"
+        "- Keep reasoning auditable: reference concrete signals, avoid vague narratives.\n\n"
+        f"{style_block}"
     )
-
-
-_STARTER_INSTRUCTION = _build_starter_instruction()
 
 
 _CONTEXT_RETRIEVAL_INSTRUCTION = """\
@@ -124,6 +151,7 @@ def build_starter_agent_config(
     *,
     enable_search: bool = True,
     enable_code_exec: bool = False,
+    style: str = "balanced",
 ) -> AgentConfig:
     """Build the BoC starter :class:`AgentConfig`.
 
@@ -142,6 +170,10 @@ def build_starter_agent_config(
     enable_code_exec : bool, default=False
         Wire an E2B Python sandbox and load the ``code-analysis-playbook``
         skill. Needs ``E2B_API_KEY`` and is slower, so it is off by default.
+    style : str, default="balanced"
+        Persona tilt for the analyst instruction. Supported values are
+        ``"balanced"``, ``"skeptical"``, and ``"cautious"``.
+        ``"contrarian"`` remains supported as a backward-compatible alias.
 
     Returns
     -------
@@ -169,7 +201,7 @@ def build_starter_agent_config(
     return AgentConfig(
         name="boc_starter_agent",
         model=model,
-        instruction=_STARTER_INSTRUCTION,
+        instruction=_build_starter_instruction(style=style),
         # 16k headroom: enough for a complete run_code script + structured output.
         max_output_tokens=16_384 if enable_code_exec else None,
         context_retrieval=context_retrieval,
